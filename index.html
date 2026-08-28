@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Plano — habitaciones en cuadrícula</title>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <style>
+    :root {
+      --cell: 1cm;
+      --ink: #1c1917;
+      --muted: #57534e;
+      --paper: #faf8f5;
+      --line: #c5d4e8;
+      --line-strong: #8eabc8;
+      --panel: #292524;
+      --panel-2: #3f3a36;
+      --accent: #e07a5f;
+      --ok: #3d8b6e;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: #1c1917;
+      color: #f5f0eb;
+    }
+
+    body {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+    }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid #44403c;
+      padding: 18px 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+
+    .hint {
+      margin: 0;
+      font-size: 0.78rem;
+      line-height: 1.45;
+      color: #a8a29e;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #a8a29e;
+    }
+
+    .modes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    button, select, input[type="text"] {
+      font: inherit;
+    }
+
+    .modes button, .actions button {
+      background: var(--panel-2);
+      color: #f5f0eb;
+      border: 1px solid #57534e;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    .modes button.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #1c1917;
+      font-weight: 650;
+    }
+
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .actions button.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .actions button.danger { background: #9a3412; border-color: #9a3412; }
+
+    .palette {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .swatch {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: var(--panel-2);
+      cursor: pointer;
+      font-size: 0.82rem;
+    }
+
+    .swatch.selected {
+      border-color: #fafaf9;
+      box-shadow: inset 0 0 0 1px #fafaf9;
+    }
+
+    .dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,.25);
+      flex-shrink: 0;
+    }
+
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 0.82rem;
+      color: #d6d3d1;
+    }
+
+    input[type="text"] {
+      background: #1c1917;
+      color: #fafaf9;
+      border: 1px solid #57534e;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .custom {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type="color"] {
+      width: 36px;
+      height: 32px;
+      padding: 0;
+      border: none;
+      background: none;
+      cursor: pointer;
+    }
+
+    .status {
+      font-size: 0.78rem;
+      color: #d6d3d1;
+      min-height: 2.4em;
+    }
+
+    main {
+      overflow: auto;
+      background: #44403c;
+      padding: 20px;
+    }
+
+    .sheet {
+      background: var(--paper);
+      width: max-content;
+      box-shadow: 0 12px 40px rgba(0,0,0,.35);
+      position: relative;
+      user-select: none;
+    }
+
+    #grid {
+      display: grid;
+      width: max-content;
+    }
+
+    .cell {
+      width: var(--cell);
+      height: var(--cell);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      background: transparent;
+    }
+
+    .cell.major-x { border-right-color: var(--line-strong); }
+    .cell.major-y { border-bottom-color: var(--line-strong); }
+
+    .cell.loose { outline: 1px dashed rgba(0,0,0,.25); outline-offset: -2px; }
+    .cell.selected { box-shadow: inset 0 0 0 2px #1c1917; }
+    .cell.ghost { opacity: 0.55; }
+    .cell.blocked { box-shadow: inset 0 0 0 2px #b91c1c; }
+
+    #labels {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .room-label {
+      position: absolute;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: #1c1917;
+      text-shadow: 0 0 4px rgba(255,255,255,.7);
+      line-height: 1.15;
+      padding: 2px;
+    }
+
+    .pintar #grid { cursor: crosshair; }
+    .borrar #grid { cursor: cell; }
+    .seleccionar #grid { cursor: pointer; }
+    .mover #grid { cursor: grab; }
+    .mover.dragging #grid { cursor: grabbing; }
+  </style>
+</head>
+<body>
+  <aside>
+    <div>
+      <h1>Plano de ambientes</h1>
+      <p class="hint">Cada celda mide 1 cm. Pintá, agrupá como habitación y mové el bloque buscando otra disposición.</p>
+    </div>
+
+    <section>
+      <h2>Herramienta</h2>
+      <div class="modes">
+        <button type="button" data-mode="pintar" class="active">Pintar</button>
+        <button type="button" data-mode="borrar">Borrar</button>
+        <button type="button" data-mode="seleccionar">Seleccionar</button>
+        <button type="button" data-mode="mover">Mover</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Ambiente</h2>
+      <div class="palette" id="palette"></div>
+      <div class="custom" style="margin-top:8px">
+        <input type="color" id="customColor" value="#e07a5f" />
+        <span style="font-size:0.82rem;color:#d6d3d1">Color libre</span>
+      </div>
+    </section>
+
+    <label class="field">
+      Nombre al agrupar
+      <input type="text" id="roomName" placeholder="ej. Dormitorio 1" />
+    </label>
+
+    <section class="actions">
+      <button type="button" id="groupBtn" class="ok">Agrupar como habitación</button>
+      <button type="button" id="ungroupBtn">Desagrupar</button>
+      <button type="button" id="rotateBtn">Rotar 90°</button>
+      <button type="button" id="clearBtn" class="danger">Vaciar lienzo</button>
+    </section>
+
+    <p class="status" id="status">Pintá celdas vacías. Agrupar convierte lo pintado (o la selección) en un bloque móvil.</p>
+  </aside>
+
+  <main>
+    <div class="sheet" id="sheet">
+      <div id="grid"></div>
+      <div id="labels"></div>
+    </div>
+  </main>
+
+  <script>
+    const COLS = 48;
+    const ROWS = 32;
+    const ROOMS = [
+      { name: "Living", color: "#f4d35e" },
+      { name: "Cocina", color: "#ee6c4d" },
+      { name: "Comedor", color: "#f7a072" },
+      { name: "Dormitorio", color: "#7eb8da" },
+      { name: "Baño", color: "#8ecae6" },
+      { name: "Pasillo", color: "#d4d4d4" },
+      { name: "Terraza", color: "#90be6d" },
+      { name: "Estudio", color: "#9b8ec4" },
+      { name: "Lavadero", color: "#adb5bd" },
+      { name: "Garage", color: "#6c757d" }
+    ];
+
+    const state = {
+      mode: "pintar",
+      color: ROOMS[0].color,
+      roomPreset: ROOMS[0].name,
+      cells: {},
+      blocks: {},
+      nextBlock: 1,
+      selected: new Set(),
+      selectedBlock: null,
+      painting: false,
+      drag: null
+    };
+
+    function key(r, c) { return r + "," + c; }
+
+    function parseKey(k) {
+      const [r, c] = k.split(",").map(Number);
+      return { r, c };
+    }
+
+    function setStatus(text) {
+      $("#status").text(text);
+    }
+
+    function buildPalette() {
+      const $p = $("#palette");
+      ROOMS.forEach((room, i) => {
+        const $s = $("<button type='button' class='swatch'></button>")
+          .toggleClass("selected", i === 0)
+          .append($("<span class='dot'></span>").css("background", room.color))
+          .append(document.createTextNode(room.name))
+          .on("click", function () {
+            $(".swatch").removeClass("selected");
+            $(this).addClass("selected");
+            state.color = room.color;
+            state.roomPreset = room.name;
+            if (!$("#roomName").val().trim()) {
+              $("#roomName").attr("placeholder", room.name);
+            }
+          });
+        $p.append($s);
+      });
+    }
+
+    function buildGrid() {
+      const $g = $("#grid");
+      $g.css({
+        "grid-template-columns": "repeat(" + COLS + ", var(--cell))",
+        "grid-template-rows": "repeat(" + ROWS + ", var(--cell))"
+      });
+      const frag = document.createDocumentFragment();
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const el = document.createElement("div");
+          el.className = "cell";
+          if ((c + 1) % 5 === 0) el.classList.add("major-x");
+          if ((r + 1) % 5 === 0) el.classList.add("major-y");
+          el.dataset.r = r;
+          el.dataset.c = c;
+          frag.appendChild(el);
+        }
+      }
+      $g.append(frag);
+    }
+
+    function cellAt(r, c) {
+      return document.querySelector('.cell[data-r="' + r + '"][data-c="' + c + '"]');
+    }
+
+    function occupancy(r, c) {
+      return state.cells[key(r, c)] || null;
+    }
+
+    function paintCell(r, c, color) {
+      if (r < 0 || c < 0 || r >= ROWS || c >= COLS) return;
+      const occ = occupancy(r, c);
+      if (occ && occ.blockId) return;
+      state.cells[key(r, c)] = { color: color, blockId: null };
+    }
+
+    function eraseCell(r, c) {
+      const occ = occupancy(r, c);
+      if (!occ) return;
+      if (occ.blockId) {
+        setStatus("No se puede borrar una celda agrupada. Desagrupá primero.");
+        return;
+      }
+      delete state.cells[key(r, c)];
+      state.selected.delete(key(r, c));
+    }
+
+    function render() {
+      $(".cell").each(function () {
+        const r = +this.dataset.r;
+        const c = +this.dataset.c;
+        const k = key(r, c);
+        const occ = occupancy(r, c);
+        const ghost = state.drag && state.drag.preview && state.drag.preview.has(k);
+        this.style.background = occ ? occ.color : (ghost ? state.drag.color : "transparent");
+        this.classList.toggle("loose", !!(occ && !occ.blockId));
+        this.classList.toggle("selected", state.selected.has(k));
+        this.classList.toggle("ghost", !!(ghost && !occ));
+        this.classList.toggle("blocked", !!(state.drag && state.drag.invalid && ghost));
+      });
+      renderLabels();
+    }
+
+    function renderLabels() {
+      const $labels = $("#labels").empty();
+      const cellPx = $(".cell").first().outerWidth();
+      Object.values(state.blocks).forEach(function (block) {
+        let minR = Infinity, minC = Infinity, maxR = -Infinity, maxC = -Infinity;
+        block.cells.forEach(function (p) {
+          const r = block.origin.r + p.dr;
+          const c = block.origin.c + p.dc;
+          minR = Math.min(minR, r);
+          minC = Math.min(minC, c);
+          maxR = Math.max(maxR, r);
+          maxC = Math.max(maxC, c);
+        });
+        const $lab = $("<div class='room-label'></div>")
+          .text(block.name)
+          .css({
+            left: minC * cellPx + "px",
+            top: minR * cellPx + "px",
+            width: (maxC - minC + 1) * cellPx + "px",
+            height: (maxR - minR + 1) * cellPx + "px"
+          });
+        if (state.selectedBlock === block.id) {
+          $lab.css("outline", "2px solid #1c1917");
+        }
+        $labels.append($lab);
+      });
+    }
+
+    function coordsFromEvent(e) {
+      const $cell = $(e.target).closest(".cell");
+      if (!$cell.length) return null;
+      return { r: +$cell.data("r"), c: +$cell.data("c") };
+    }
+
+    function toggleSelect(r, c) {
+      const k = key(r, c);
+      const occ = occupancy(r, c);
+      if (occ && occ.blockId) {
+        state.selected.clear();
+        state.selectedBlock = occ.blockId;
+        setStatus("Habitación «" + state.blocks[occ.blockId].name + "» seleccionada.");
+        return;
+      }
+      state.selectedBlock = null;
+      if (!occ) {
+        state.selected.delete(k);
+        return;
+      }
+      if (state.selected.has(k)) state.selected.delete(k);
+      else state.selected.add(k);
+    }
+
+    function groupSelection() {
+      let keys = Array.from(state.selected);
+      if (!keys.length) {
+        keys = Object.keys(state.cells).filter(function (k) {
+          return !state.cells[k].blockId;
+        });
+      }
+      keys = keys.filter(function (k) {
+        const occ = state.cells[k];
+        return occ && !occ.blockId;
+      });
+      if (!keys.length) {
+        setStatus("No hay celdas sueltas para agrupar.");
+        return;
+      }
+      const pts = keys.map(parseKey);
+      const minR = Math.min.apply(null, pts.map(function (p) { return p.r; }));
+      const minC = Math.min.apply(null, pts.map(function (p) { return p.c; }));
+      const id = "b" + state.nextBlock++;
+      const name = $("#roomName").val().trim() || state.roomPreset || "Ambiente";
+      const color = state.cells[keys[0]].color;
+      state.blocks[id] = {
+        id: id,
+        name: name,
+        color: color,
+        origin: { r: minR, c: minC },
+        cells: pts.map(function (p) {
+          return { dr: p.r - minR, dc: p.c - minC };
+        })
+      };
+      keys.forEach(function (k) {
+        state.cells[k].blockId = id;
+        state.cells[k].color = color;
+      });
+      state.selected.clear();
+      state.selectedBlock = id;
+      $("#roomName").val("");
+      setStatus("Habitación «" + name + "» agrupada. Pasá a Mover para desplazarla.");
+      render();
+    }
+
+    function ungroupSelected() {
+      const id = state.selectedBlock;
+      if (!id || !state.blocks[id]) {
+        setStatus("Seleccioná una habitación agrupada para desagrupar.");
+        return;
+      }
+      Object.keys(state.cells).forEach(function (k) {
+        if (state.cells[k].blockId === id) state.cells[k].blockId = null;
+      });
+      const name = state.blocks[id].name;
+      delete state.blocks[id];
+      state.selectedBlock = null;
+      setStatus("«" + name + "» desagrupada. Ya podés pintar o borrar esas celdas.");
+      render();
+    }
+
+    function rotateSelected() {
+      const id = state.selectedBlock;
+      if (!id || !state.blocks[id]) {
+        setStatus("Seleccioná una habitación (modo Seleccionar o Mover) para rotarla.");
+        return;
+      }
+      const block = state.blocks[id];
+      const rotated = block.cells.map(function (p) {
+        return { dr: p.dc, dc: -p.dr };
+      });
+      const minDr = Math.min.apply(null, rotated.map(function (p) { return p.dr; }));
+      const minDc = Math.min.apply(null, rotated.map(function (p) { return p.dc; }));
+      const normalized = rotated.map(function (p) {
+        return { dr: p.dr - minDr, dc: p.dc - minDc };
+      });
+      if (!canPlace(block.origin.r, block.origin.c, normalized, id)) {
+        setStatus("No hay espacio para rotar ahí. Mové el bloque y reintentá.");
+        return;
+      }
+      clearBlockCells(id);
+      block.cells = normalized;
+      stampBlock(block);
+      setStatus("«" + block.name + "» rotada 90°.");
+      render();
+    }
+
+    function clearBlockCells(id) {
+      Object.keys(state.cells).forEach(function (k) {
+        if (state.cells[k].blockId === id) delete state.cells[k];
+      });
+    }
+
+    function stampBlock(block) {
+      block.cells.forEach(function (p) {
+        const r = block.origin.r + p.dr;
+        const c = block.origin.c + p.dc;
+        state.cells[key(r, c)] = { color: block.color, blockId: block.id };
+      });
+    }
+
+    function canPlace(originR, originC, cells, ignoreId) {
+      for (let i = 0; i < cells.length; i++) {
+        const r = originR + cells[i].dr;
+        const c = originC + cells[i].dc;
+        if (r < 0 || c < 0 || r >= ROWS || c >= COLS) return false;
+        const occ = occupancy(r, c);
+        if (occ && occ.blockId !== ignoreId) return false;
+      }
+      return true;
+    }
+
+    function startDrag(r, c) {
+      const occ = occupancy(r, c);
+      if (!occ || !occ.blockId) {
+        setStatus("En Mover, arrastrá una habitación ya agrupada.");
+        return;
+      }
+      const block = state.blocks[occ.blockId];
+      state.selectedBlock = block.id;
+      state.drag = {
+        id: block.id,
+        color: block.color,
+        startR: r,
+        startC: c,
+        originR: block.origin.r,
+        originC: block.origin.c,
+        preview: null,
+        invalid: false
+      };
+      $("body").addClass("dragging");
+    }
+
+    function updateDrag(r, c) {
+      if (!state.drag) return;
+      const block = state.blocks[state.drag.id];
+      const nr = state.drag.originR + (r - state.drag.startR);
+      const nc = state.drag.originC + (c - state.drag.startC);
+      const preview = new Set();
+      block.cells.forEach(function (p) {
+        preview.add(key(nr + p.dr, nc + p.dc));
+      });
+      state.drag.preview = preview;
+      state.drag.target = { r: nr, c: nc };
+      state.drag.invalid = !canPlace(nr, nc, block.cells, block.id);
+      render();
+    }
+
+    function endDrag() {
+      if (!state.drag) return;
+      const block = state.blocks[state.drag.id];
+      if (state.drag.target && !state.drag.invalid) {
+        clearBlockCells(block.id);
+        block.origin = { r: state.drag.target.r, c: state.drag.target.c };
+        stampBlock(block);
+        setStatus("«" + block.name + "» movida.");
+      } else if (state.drag.invalid) {
+        setStatus("Ese lugar está ocupado o se sale del lienzo.");
+      }
+      state.drag = null;
+      $("body").removeClass("dragging");
+      render();
+    }
+
+    function applyTool(r, c) {
+      if (state.mode === "pintar") paintCell(r, c, state.color);
+      else if (state.mode === "borrar") eraseCell(r, c);
+      else if (state.mode === "seleccionar") toggleSelect(r, c);
+    }
+
+    $(function () {
+      buildPalette();
+      buildGrid();
+      $("body").addClass("pintar");
+      render();
+
+      $(".modes button").on("click", function () {
+        state.mode = $(this).data("mode");
+        $(".modes button").removeClass("active");
+        $(this).addClass("active");
+        $("body").removeClass("pintar borrar seleccionar mover").addClass(state.mode);
+        if (state.mode !== "seleccionar") {
+          /* keep block selection for mover/rotate */
+        }
+        setStatus({
+          pintar: "Pintá celdas vacías. Las agrupadas no se pisan.",
+          borrar: "Borramos solo celdas sueltas (sin agrupar).",
+          seleccionar: "Clic en celdas sueltas para marcarlas, o en una habitación para elegirla.",
+          mover: "Arrastrá una habitación. Encaja en la grilla y no se superpone."
+        }[state.mode]);
+      });
+
+      $("#customColor").on("input", function () {
+        state.color = this.value;
+        state.roomPreset = "Ambiente";
+        $(".swatch").removeClass("selected");
+      });
+
+      $("#groupBtn").on("click", groupSelection);
+      $("#ungroupBtn").on("click", ungroupSelected);
+      $("#rotateBtn").on("click", rotateSelected);
+      $("#clearBtn").on("click", function () {
+        if (!confirm("¿Vaciar todo el plano?")) return;
+        state.cells = {};
+        state.blocks = {};
+        state.selected.clear();
+        state.selectedBlock = null;
+        render();
+        setStatus("Lienzo vacío.");
+      });
+
+      $("#grid").on("mousedown", function (e) {
+        if (e.which !== 1) return;
+        e.preventDefault();
+        const pos = coordsFromEvent(e);
+        if (!pos) return;
+        if (state.mode === "mover") {
+          startDrag(pos.r, pos.c);
+          updateDrag(pos.r, pos.c);
+          return;
+        }
+        state.painting = true;
+        applyTool(pos.r, pos.c);
+        render();
+      });
+
+      $("#grid").on("mouseover", function (e) {
+        const pos = coordsFromEvent(e);
+        if (!pos) return;
+        if (state.drag) {
+          updateDrag(pos.r, pos.c);
+          return;
+        }
+        if (!state.painting) return;
+        if (state.mode === "pintar" || state.mode === "borrar") {
+          applyTool(pos.r, pos.c);
+          render();
+        }
+      });
+
+      $(document).on("mouseup", function () {
+        state.painting = false;
+        if (state.drag) endDrag();
+      });
+    });
+  </script>
+</body>
+</html>
