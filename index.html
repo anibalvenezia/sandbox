@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lienzo cuadriculado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <h1>Cuadrícula</h1>
+      </div>
+
+      <div class="tool-group" role="group" aria-label="Modo">
+        <button type="button" class="tool active" data-mode="paint" title="Pintar (P)">
+          Pintar
+        </button>
+        <button type="button" class="tool" data-mode="split-v" title="Partir vertical (V)">
+          Partir ▯
+        </button>
+        <button type="button" class="tool" data-mode="split-h" title="Partir horizontal (H)">
+          Partir ▭
+        </button>
+        <button type="button" class="tool" data-mode="erase" title="Borrar color (E)">
+          Borrar
+        </button>
+      </div>
+
+      <div class="palette" role="group" aria-label="Colores">
+        <button type="button" class="swatch active" data-color="#1a1a1a" style="--c:#1a1a1a" title="Negro"></button>
+        <button type="button" class="swatch" data-color="#c45c26" style="--c:#c45c26" title="Terracota"></button>
+        <button type="button" class="swatch" data-color="#2f6f4e" style="--c:#2f6f4e" title="Verde"></button>
+        <button type="button" class="swatch" data-color="#1f5f8b" style="--c:#1f5f8b" title="Azul"></button>
+        <button type="button" class="swatch" data-color="#b8860b" style="--c:#b8860b" title="Oro"></button>
+        <button type="button" class="swatch" data-color="#8b2942" style="--c:#8b2942" title="Bordeaux"></button>
+        <button type="button" class="swatch" data-color="#f4f0e6" style="--c:#f4f0e6" title="Papel"></button>
+        <label class="custom-color" title="Color personalizado">
+          <input type="color" id="customColor" value="#1a1a1a" />
+        </label>
+      </div>
+
+      <div class="tool-group size-group">
+        <label>
+          Columnas
+          <input type="number" id="cols" min="4" max="40" value="12" />
+        </label>
+        <label>
+          Filas
+          <input type="number" id="rows" min="4" max="40" value="10" />
+        </label>
+        <button type="button" id="resizeBtn" class="tool secondary">Aplicar</button>
+        <button type="button" id="clearBtn" class="tool secondary">Limpiar</button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div class="hint" id="hint">Toca para pintar · arrastra para rellenar</div>
+      <div id="grid" class="grid" aria-label="Lienzo cuadriculado"></div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
