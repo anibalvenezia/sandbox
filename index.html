@@ -68,7 +68,7 @@
 
     .modes {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(3, 1fr);
       gap: 6px;
     }
 
@@ -100,6 +100,63 @@
 
     .actions button.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
     .actions button.danger { background: #9a3412; border-color: #9a3412; }
+
+    .dimensions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+    }
+
+    .dimensions .field {
+      min-width: 0;
+    }
+
+    .dimensions input[type="number"] {
+      width: 100%;
+      background: #1c1917;
+      color: #fafaf9;
+      border: 1px solid #57534e;
+      border-radius: 8px;
+      padding: 8px 7px;
+    }
+
+    .dimensions button {
+      grid-column: 1 / -1;
+      background: #5b7c99;
+      color: #fff;
+      border: 1px solid #5b7c99;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+    }
+
+    .dimensions small {
+      grid-column: 1 / -1;
+      color: #a8a29e;
+      font-size: 0.72rem;
+      line-height: 1.35;
+    }
+
+    .split-tools {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .split-tools button {
+      background: var(--panel-2);
+      color: #f5f0eb;
+      border: 1px solid #57534e;
+      border-radius: 8px;
+      padding: 7px 6px;
+      cursor: pointer;
+      font-size: 0.78rem;
+    }
+
+    .split-tools button.active {
+      background: #5b7c99;
+      border-color: #8eabc8;
+    }
 
     .palette {
       display: grid;
@@ -203,6 +260,8 @@
     .cell.selected { box-shadow: inset 0 0 0 2px #1c1917; }
     .cell.ghost { opacity: 0.55; }
     .cell.blocked { box-shadow: inset 0 0 0 2px #b91c1c; }
+    .cell.split-horizontal { background-size: 100% 100%; }
+    .cell.split-vertical { background-size: 100% 100%; }
 
     #labels {
       position: absolute;
@@ -235,8 +294,22 @@
   <aside>
     <div>
       <h1>Plano de ambientes</h1>
-      <p class="hint">Cada celda mide 1 cm. Pintá, agrupá como habitación y mové el bloque buscando otra disposición.</p>
+      <p class="hint">Cada celda mide 1 cm. Definí el tamaño del lienzo, pintá, agrupá ambientes y mové cada bloque.</p>
     </div>
+
+    <section>
+      <h2>Tamaño del lienzo</h2>
+      <div class="dimensions">
+        <label class="field">Filas
+          <input type="number" id="rowsInput" min="1" max="100" value="32" />
+        </label>
+        <label class="field">Columnas
+          <input type="number" id="colsInput" min="1" max="100" value="48" />
+        </label>
+        <button type="button" id="resizeBtn">Aplicar dimensiones</button>
+        <small>El lienzo se reinicia al cambiar sus dimensiones.</small>
+      </div>
+    </section>
 
     <section>
       <h2>Herramienta</h2>
@@ -245,6 +318,11 @@
         <button type="button" data-mode="borrar">Borrar</button>
         <button type="button" data-mode="seleccionar">Seleccionar</button>
         <button type="button" data-mode="mover">Mover</button>
+        <button type="button" data-mode="dividir">Dividir</button>
+      </div>
+      <div class="split-tools" style="margin-top:8px">
+        <button type="button" data-split="horizontal" class="active">Mitad horizontal</button>
+        <button type="button" data-split="vertical">Mitad vertical</button>
       </div>
     </section>
 
@@ -280,8 +358,10 @@
   </main>
 
   <script>
-    const COLS = 48;
-    const ROWS = 32;
+    const DEFAULT_COLS = 48;
+    const DEFAULT_ROWS = 32;
+    let COLS = DEFAULT_COLS;
+    let ROWS = DEFAULT_ROWS;
     const ROOMS = [
       { name: "Living", color: "#f4d35e" },
       { name: "Cocina", color: "#ee6c4d" },
@@ -305,14 +385,19 @@
       selected: new Set(),
       selectedBlock: null,
       painting: false,
-      drag: null
+      drag: null,
+      splitOrientation: "horizontal"
     };
 
     function key(r, c) { return r + "," + c; }
 
-    function parseKey(k) {
-      const [r, c] = k.split(",").map(Number);
-      return { r, c };
+    function unitKey(r, c, part) {
+      return key(r, c) + "," + (part === null || part === undefined ? "w" : part);
+    }
+
+    function parseUnitKey(k) {
+      const [r, c, part] = k.split(",");
+      return { r: Number(r), c: Number(c), part: part === "w" ? null : Number(part) };
     }
 
     function setStatus(text) {
@@ -364,26 +449,107 @@
       return document.querySelector('.cell[data-r="' + r + '"][data-c="' + c + '"]');
     }
 
-    function occupancy(r, c) {
-      return state.cells[key(r, c)] || null;
+    function occupancy(r, c, part) {
+      const cell = state.cells[key(r, c)] || null;
+      if (!cell) return null;
+      if (cell.split) {
+        return part === null || part === undefined ? null : cell.parts[part];
+      }
+      return part === null || part === undefined ? cell : null;
     }
 
-    function paintCell(r, c, color) {
+    function cellHasBlock(cell, blockId) {
+      if (!cell) return false;
+      if (cell.split) {
+        return cell.parts.some(function (part) {
+          return part && part.blockId && part.blockId !== blockId;
+        });
+      }
+      return !!(cell.blockId && cell.blockId !== blockId);
+    }
+
+    function paintedUnits() {
+      const units = [];
+      Object.keys(state.cells).forEach(function (k) {
+        const point = k.split(",").map(Number);
+        const cell = state.cells[k];
+        if (cell.split) {
+          cell.parts.forEach(function (part, index) {
+            if (part && part.color) {
+              units.push({ r: point[0], c: point[1], part: index, split: cell.split, value: part });
+            }
+          });
+        } else if (cell.color) {
+          units.push({ r: point[0], c: point[1], part: null, split: null, value: cell });
+        }
+      });
+      return units;
+    }
+
+    function paintCell(r, c, color, part) {
       if (r < 0 || c < 0 || r >= ROWS || c >= COLS) return;
-      const occ = occupancy(r, c);
+      let cell = state.cells[key(r, c)];
+      if (!cell) {
+        if (part !== null && part !== undefined) {
+          cell = { split: state.splitOrientation, parts: [null, null] };
+        } else {
+          state.cells[key(r, c)] = { color: color, blockId: null };
+          return;
+        }
+      }
+      if (cell.split) {
+        const targetPart = part === null || part === undefined ? 0 : part;
+        const occ = occupancy(r, c, targetPart);
+        if (occ && occ.blockId) return;
+        cell.parts[targetPart] = { color: color, blockId: null };
+        return;
+      }
+      const occ = occupancy(r, c, null);
       if (occ && occ.blockId) return;
-      state.cells[key(r, c)] = { color: color, blockId: null };
+      cell.color = color;
+      cell.blockId = null;
     }
 
-    function eraseCell(r, c) {
-      const occ = occupancy(r, c);
+    function eraseCell(r, c, part) {
+      const cell = state.cells[key(r, c)];
+      const targetPart = cell && cell.split ? (part === null || part === undefined ? 0 : part) : null;
+      const occ = occupancy(r, c, targetPart);
       if (!occ) return;
       if (occ.blockId) {
         setStatus("No se puede borrar una celda agrupada. Desagrupá primero.");
         return;
       }
-      delete state.cells[key(r, c)];
-      state.selected.delete(key(r, c));
+      if (cell && cell.split) {
+        cell.parts[targetPart] = null;
+        state.selected.delete(unitKey(r, c, targetPart));
+      } else {
+        delete state.cells[key(r, c)];
+        state.selected.delete(unitKey(r, c, null));
+      }
+    }
+
+    function splitCell(r, c, orientation) {
+      const k = key(r, c);
+      const cell = state.cells[k];
+      if (cell && cell.split) {
+        if (cell.split === orientation) {
+          setStatus("Esa celda ya está dividida en forma " + (orientation === "horizontal" ? "horizontal." : "vertical."));
+        } else {
+          setStatus("Una celda dividida no puede cambiar de orientación sin borrar sus mitades.");
+        }
+        return;
+      }
+      if (cell && cellHasBlock(cell, null)) {
+        setStatus("Desagrupá la celda antes de dividirla.");
+        return;
+      }
+      const oldPart = cell && cell.color ? { color: cell.color, blockId: null } : null;
+      state.cells[k] = {
+        split: orientation,
+        parts: [oldPart ? { ...oldPart } : null, oldPart ? { ...oldPart } : null]
+      };
+      state.selected.delete(unitKey(r, c, null));
+      setStatus("Celda dividida en dos mitades " + (orientation === "horizontal" ? "horizontales." : "verticales."));
     }
 
     function render() {
@@ -391,15 +557,50 @@
         const r = +this.dataset.r;
         const c = +this.dataset.c;
         const k = key(r, c);
-        const occ = occupancy(r, c);
-        const ghost = state.drag && state.drag.preview && state.drag.preview.has(k);
-        this.style.background = occ ? occ.color : (ghost ? state.drag.color : "transparent");
-        this.classList.toggle("loose", !!(occ && !occ.blockId));
-        this.classList.toggle("selected", state.selected.has(k));
-        this.classList.toggle("ghost", !!(ghost && !occ));
-        this.classList.toggle("blocked", !!(state.drag && state.drag.invalid && ghost));
+        const cell = state.cells[k];
+        const preview = state.drag && state.drag.preview ? state.drag.preview[k] : null;
+        const selectedWhole = state.selected.has(unitKey(r, c, null));
+        const selectedPart = [0, 1].some(function (part) {
+          return state.selected.has(unitKey(r, c, part));
+        });
+        this.classList.toggle("split-horizontal", !!(cell && cell.split === "horizontal"));
+        this.classList.toggle("split-vertical", !!(cell && cell.split === "vertical"));
+        this.classList.toggle("loose", !!(cell && (cell.split
+          ? cell.parts.some(function (part) { return part && !part.blockId; })
+          : !cell.blockId && cell.color)));
+        this.classList.toggle("selected", selectedWhole || selectedPart);
+        this.classList.toggle("ghost", !!(preview && !cell));
+        this.classList.toggle("blocked", !!(state.drag && state.drag.invalid && preview));
+
+        if (cell && cell.split) {
+          const parts = cell.parts.map(function (part) { return part ? part.color : "transparent"; });
+          this.style.background = splitBackground(cell.split, parts);
+        } else if (cell && cell.color) {
+          this.style.background = cell.color;
+        } else if (preview) {
+          this.style.background = previewBackground(preview);
+        } else {
+          this.style.background = "transparent";
+        }
       });
       renderLabels();
+    }
+
+    function splitBackground(orientation, parts) {
+      const first = parts[0] || "transparent";
+      const second = parts[1] || "transparent";
+      const direction = orientation === "horizontal" ? "to bottom" : "to right";
+      return "linear-gradient(" + direction + ", " +
+        first + " 0%, " + first + " calc(50% - 1px), " +
+        "#8eabc8 calc(50% - 1px), #8eabc8 calc(50% + 1px), " +
+        second + " calc(50% + 1px), " + second + " 100%)";
+    }
+
+    function previewBackground(preview) {
+      if (preview.split && !preview.whole) {
+        return splitBackground(preview.split, preview.parts);
+      }
+      return preview.color;
     }
 
     function renderLabels() {
@@ -433,12 +634,24 @@
     function coordsFromEvent(e) {
       const $cell = $(e.target).closest(".cell");
       if (!$cell.length) return null;
-      return { r: +$cell.data("r"), c: +$cell.data("c") };
+      const r = +$cell.data("r");
+      const c = +$cell.data("c");
+      const cell = state.cells[key(r, c)];
+      let part = null;
+      if (cell && cell.split) {
+        const rect = $cell[0].getBoundingClientRect();
+        const relativeX = e.clientX - rect.left;
+        const relativeY = e.clientY - rect.top;
+        part = cell.split === "horizontal"
+          ? (relativeY < rect.height / 2 ? 0 : 1)
+          : (relativeX < rect.width / 2 ? 0 : 1);
+      }
+      return { r: r, c: c, part: part };
     }
 
-    function toggleSelect(r, c) {
-      const k = key(r, c);
-      const occ = occupancy(r, c);
+    function toggleSelect(r, c, part) {
+      const k = unitKey(r, c, part);
+      const occ = occupancy(r, c, part);
       if (occ && occ.blockId) {
         state.selected.clear();
         state.selectedBlock = occ.blockId;
@@ -457,36 +670,50 @@
     function groupSelection() {
       let keys = Array.from(state.selected);
       if (!keys.length) {
-        keys = Object.keys(state.cells).filter(function (k) {
-          return !state.cells[k].blockId;
-        });
+        keys = paintedUnits()
+          .filter(function (unit) { return !unit.value.blockId; })
+          .map(function (unit) { return unitKey(unit.r, unit.c, unit.part); });
       }
-      keys = keys.filter(function (k) {
-        const occ = state.cells[k];
-        return occ && !occ.blockId;
+      const units = keys.map(parseUnitKey).map(function (unit) {
+        unit.value = occupancy(unit.r, unit.c, unit.part);
+        const cell = state.cells[key(unit.r, unit.c)];
+        unit.split = cell && cell.split ? cell.split : null;
+        return unit;
+      }).filter(function (unit) {
+        return unit.value && !unit.value.blockId && unit.value.color;
       });
-      if (!keys.length) {
+      if (!units.length) {
         setStatus("No hay celdas sueltas para agrupar.");
         return;
       }
-      const pts = keys.map(parseKey);
-      const minR = Math.min.apply(null, pts.map(function (p) { return p.r; }));
-      const minC = Math.min.apply(null, pts.map(function (p) { return p.c; }));
+      const minR = Math.min.apply(null, units.map(function (p) { return p.r; }));
+      const minC = Math.min.apply(null, units.map(function (p) { return p.c; }));
       const id = "b" + state.nextBlock++;
       const name = $("#roomName").val().trim() || state.roomPreset || "Ambiente";
-      const color = state.cells[keys[0]].color;
+      const color = units[0].value.color;
       state.blocks[id] = {
         id: id,
         name: name,
         color: color,
         origin: { r: minR, c: minC },
-        cells: pts.map(function (p) {
-          return { dr: p.r - minR, dc: p.c - minC };
+        cells: units.map(function (unit) {
+          return {
+            dr: unit.r - minR,
+            dc: unit.c - minC,
+            part: unit.part,
+            split: unit.split,
+            color: unit.value.color
+          };
         })
       };
-      keys.forEach(function (k) {
-        state.cells[k].blockId = id;
-        state.cells[k].color = color;
+      units.forEach(function (unit) {
+        const cell = state.cells[key(unit.r, unit.c)];
+        if (cell.split) {
+          cell.parts[unit.part].blockId = id;
+        } else {
+          cell.blockId = id;
+          cell.color = color;
+        }
       });
       state.selected.clear();
       state.selectedBlock = id;
@@ -502,7 +729,14 @@
         return;
       }
       Object.keys(state.cells).forEach(function (k) {
-        if (state.cells[k].blockId === id) state.cells[k].blockId = null;
+        const cell = state.cells[k];
+        if (cell.split) {
+          cell.parts.forEach(function (part) {
+            if (part && part.blockId === id) part.blockId = null;
+          });
+        } else if (cell.blockId === id) {
+          cell.blockId = null;
+        }
       });
       const name = state.blocks[id].name;
       delete state.blocks[id];
@@ -519,12 +753,25 @@
       }
       const block = state.blocks[id];
       const rotated = block.cells.map(function (p) {
-        return { dr: p.dc, dc: -p.dr };
+        const wasSplit = p.split === "horizontal" || p.split === "vertical";
+        return {
+          dr: p.dc,
+          dc: -p.dr,
+          part: wasSplit && p.split === "horizontal" ? (p.part === 0 ? 1 : 0) : p.part,
+          split: wasSplit ? (p.split === "horizontal" ? "vertical" : "horizontal") : null,
+          color: p.color
+        };
       });
       const minDr = Math.min.apply(null, rotated.map(function (p) { return p.dr; }));
       const minDc = Math.min.apply(null, rotated.map(function (p) { return p.dc; }));
       const normalized = rotated.map(function (p) {
-        return { dr: p.dr - minDr, dc: p.dc - minDc };
+        return {
+          dr: p.dr - minDr,
+          dc: p.dc - minDc,
+          part: p.part,
+          split: p.split,
+          color: p.color
+        };
       });
       if (!canPlace(block.origin.r, block.origin.c, normalized, id)) {
         setStatus("No hay espacio para rotar ahí. Mové el bloque y reintentá.");
@@ -539,7 +786,17 @@
 
     function clearBlockCells(id) {
       Object.keys(state.cells).forEach(function (k) {
-        if (state.cells[k].blockId === id) delete state.cells[k];
+        const cell = state.cells[k];
+        if (cell.split) {
+          cell.parts = cell.parts.map(function (part) {
+            return part && part.blockId === id ? null : part;
+          });
+          if (!cell.parts.some(Boolean)) {
+            delete state.cells[k];
+          }
+        } else if (cell.blockId === id) {
+          delete state.cells[k];
+        }
       });
     }
 
@@ -547,23 +804,50 @@
       block.cells.forEach(function (p) {
         const r = block.origin.r + p.dr;
         const c = block.origin.c + p.dc;
-        state.cells[key(r, c)] = { color: block.color, blockId: block.id };
+        const k = key(r, c);
+        if (p.part === null || p.part === undefined) {
+          state.cells[k] = { color: p.color || block.color, blockId: block.id };
+          return;
+        }
+        let cell = state.cells[k];
+        if (!cell) {
+          cell = { split: p.split || "horizontal", parts: [null, null] };
+          state.cells[k] = cell;
+        }
+        cell.parts[p.part] = { color: p.color || block.color, blockId: block.id };
       });
     }
 
     function canPlace(originR, originC, cells, ignoreId) {
+      const planned = {};
       for (let i = 0; i < cells.length; i++) {
-        const r = originR + cells[i].dr;
-        const c = originC + cells[i].dc;
+        const unit = cells[i];
+        const r = originR + unit.dr;
+        const c = originC + unit.dc;
         if (r < 0 || c < 0 || r >= ROWS || c >= COLS) return false;
-        const occ = occupancy(r, c);
+        const k = key(r, c);
+        const cell = state.cells[k];
+        if (unit.part === null || unit.part === undefined) {
+          if (cellHasBlock(cell, ignoreId)) return false;
+          if (cell && cell.split && cell.parts.some(Boolean)) return false;
+          planned[k] = { whole: true };
+          continue;
+        }
+        if (planned[k] && planned[k].whole) return false;
+        if (cell && !cell.split && cellHasBlock(cell, ignoreId)) return false;
+        if (cell && cell.split && cell.split !== unit.split &&
+            cell.parts.some(function (part) { return part && part.blockId !== ignoreId; })) return false;
+        const occ = occupancy(r, c, unit.part);
         if (occ && occ.blockId !== ignoreId) return false;
+        planned[k] = planned[k] || { parts: {} };
+        if (planned[k].parts[unit.part]) return false;
+        planned[k].parts[unit.part] = true;
       }
       return true;
     }
 
-    function startDrag(r, c) {
-      const occ = occupancy(r, c);
+    function startDrag(r, c, part) {
+      const occ = occupancy(r, c, part);
       if (!occ || !occ.blockId) {
         setStatus("En Mover, arrastrá una habitación ya agrupada.");
         return;
@@ -588,9 +872,20 @@
       const block = state.blocks[state.drag.id];
       const nr = state.drag.originR + (r - state.drag.startR);
       const nc = state.drag.originC + (c - state.drag.startC);
-      const preview = new Set();
+      const preview = {};
       block.cells.forEach(function (p) {
-        preview.add(key(nr + p.dr, nc + p.dc));
+        const targetKey = key(nr + p.dr, nc + p.dc);
+        preview[targetKey] = preview[targetKey] || {
+          color: p.color || block.color,
+          split: p.split,
+          parts: [null, null]
+        };
+        if (p.part === null || p.part === undefined) {
+          preview[targetKey].whole = true;
+        } else {
+          preview[targetKey].split = p.split;
+          preview[targetKey].parts[p.part] = p.color || block.color;
+        }
       });
       state.drag.preview = preview;
       state.drag.target = { r: nr, c: nc };
@@ -614,10 +909,45 @@
       render();
     }
 
-    function applyTool(r, c) {
-      if (state.mode === "pintar") paintCell(r, c, state.color);
-      else if (state.mode === "borrar") eraseCell(r, c);
-      else if (state.mode === "seleccionar") toggleSelect(r, c);
+    function applyTool(r, c, part) {
+      if (state.mode === "pintar") paintCell(r, c, state.color, part);
+      else if (state.mode === "borrar") eraseCell(r, c, part);
+      else if (state.mode === "seleccionar") toggleSelect(r, c, part);
+      else if (state.mode === "dividir") splitCell(r, c, state.splitOrientation);
+    }
+
+    function resetCanvas() {
+      state.cells = {};
+      state.blocks = {};
+      state.selected.clear();
+      state.selectedBlock = null;
+      state.drag = null;
+      $("#grid").empty();
+      $("#labels").empty();
+      buildGrid();
+      render();
+    }
+
+    function applyCanvasDimensions() {
+      const rows = Number.parseInt($("#rowsInput").val(), 10);
+      const cols = Number.parseInt($("#colsInput").val(), 10);
+      if (!Number.isInteger(rows) || !Number.isInteger(cols) || rows < 1 || cols < 1 || rows > 100 || cols > 100) {
+        setStatus("Las filas y columnas deben ser números entre 1 y 100.");
+        return;
+      }
+      if (rows === ROWS && cols === COLS) {
+        setStatus("El lienzo ya tiene esas dimensiones.");
+        return;
+      }
+      if (Object.keys(state.cells).length && !confirm("Cambiar las dimensiones va a vaciar el lienzo. ¿Continuar?")) {
+        $("#rowsInput").val(ROWS);
+        $("#colsInput").val(COLS);
+        return;
+      }
+      ROWS = rows;
+      COLS = cols;
+      resetCanvas();
+      setStatus("Lienzo actualizado: " + ROWS + " filas × " + COLS + " columnas.");
     }
 
     $(function () {
@@ -630,7 +960,7 @@
         state.mode = $(this).data("mode");
         $(".modes button").removeClass("active");
         $(this).addClass("active");
-        $("body").removeClass("pintar borrar seleccionar mover").addClass(state.mode);
+        $("body").removeClass("pintar borrar seleccionar mover dividir").addClass(state.mode);
         if (state.mode !== "seleccionar") {
           /* keep block selection for mover/rotate */
         }
@@ -638,9 +968,19 @@
           pintar: "Pintá celdas vacías. Las agrupadas no se pisan.",
           borrar: "Borramos solo celdas sueltas (sin agrupar).",
           seleccionar: "Clic en celdas sueltas para marcarlas, o en una habitación para elegirla.",
-          mover: "Arrastrá una habitación. Encaja en la grilla y no se superpone."
+          mover: "Arrastrá una habitación. Encaja en la grilla y no se superpone.",
+          dividir: "Elegí orientación y hacé clic en una celda para partirla en dos."
         }[state.mode]);
       });
+
+      $(".split-tools button").on("click", function () {
+        state.splitOrientation = $(this).data("split");
+        $(".split-tools button").removeClass("active");
+        $(this).addClass("active");
+        setStatus("Orientación elegida: mitad " + (state.splitOrientation === "horizontal" ? "horizontal." : "vertical."));
+      });
+
+      $("#resizeBtn").on("click", applyCanvasDimensions);
 
       $("#customColor").on("input", function () {
         state.color = this.value;
@@ -667,12 +1007,12 @@
         const pos = coordsFromEvent(e);
         if (!pos) return;
         if (state.mode === "mover") {
-          startDrag(pos.r, pos.c);
+          startDrag(pos.r, pos.c, pos.part);
           updateDrag(pos.r, pos.c);
           return;
         }
         state.painting = true;
-        applyTool(pos.r, pos.c);
+        applyTool(pos.r, pos.c, pos.part);
         render();
       });
 
@@ -685,7 +1025,7 @@
         }
         if (!state.painting) return;
         if (state.mode === "pintar" || state.mode === "borrar") {
-          applyTool(pos.r, pos.c);
+          applyTool(pos.r, pos.c, pos.part);
           render();
         }
       });
